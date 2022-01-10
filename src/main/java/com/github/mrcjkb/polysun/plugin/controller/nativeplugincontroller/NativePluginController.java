@@ -3,13 +3,17 @@ package com.github.mrcjkb.polysun.plugin.controller.nativeplugincontroller;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
-import java.net.URL;
 import java.nio.file.Files;
+import java.util.Arrays;
+import java.util.EnumSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 import com.sun.jna.Platform;
 import com.sun.jna.Native;
@@ -20,7 +24,10 @@ import com.velasolaris.plugin.controller.spi.AbstractPluginController;
 import com.velasolaris.plugin.controller.spi.PluginControllerConfiguration;
 import com.velasolaris.plugin.controller.spi.PluginControllerException;
 import com.velasolaris.plugin.controller.spi.PolysunSettings;
+import com.velasolaris.plugin.controller.spi.PluginControllerConfiguration.Log;
+import com.velasolaris.plugin.controller.spi.PluginControllerConfiguration.Property;
 
+import static java.lang.String.format;
 
 public class NativePluginController extends AbstractPluginController {
 
@@ -29,9 +36,24 @@ public class NativePluginController extends AbstractPluginController {
   private static final int STAGE_INITIALISE_SIMULATION = 0;
   private static final int STAGE_DURING_SIMULATION = 1;
   private static final int STAGE_TERMINATE_SIMULATION = 2;
+  private static final String ENFORCE_MAX_TIME_STEP_SIZE_PROPERTY_KEY = "Enforce maximum time step size";
+  private static enum YesNoOption {
+    Yes,
+    No
+  }
+  private static final String ENFORCED_TIMESTEP_SIZE_PROPERTY_KEY = "Maximum step size / s";
+  private static final int MINIMUM_ENFORCED_TIME_STEP_SIZE_S = 1;
+  private static final int MAXIMUM_ENFORCED_TIME_STEP_SIZE_S = 3600;
+  private static final int DEFAULT_ENFORCED_TIME_STEP_SIZE_S = 900;
+  private static final int MAX_NUM_GENERIC_SENSORS = 30;
+  private static final int MAX_NUM_GENERIC_CONTROL_SIGNALS = 30;
+  private static final int SIMULATION_ANALYSIS_LOG_COUNT = 5;
+
   private Optional<NativeLibraryInterface> nativeLibraryInterfaceOptional = Optional.empty();
+  // JNA does not support bool[]
   private int[] controlSignalsInUse;
-  private int[] sensorsInUse; // JNA does not support bool[]
+  private int[] sensorsInUse; 
+  private int enforcedMaximumTimeStepSize = 0; // 0 means not enforced
 
   @Override
   public String getName() {
@@ -41,8 +63,12 @@ public class NativePluginController extends AbstractPluginController {
   @Override
   public PluginControllerConfiguration getConfiguration(Map<String, Object> parameters) throws PluginControllerException {
     return new PluginControllerConfiguration.Builder()
-      .setNumGenericSensors(30)
-      .setNumGenericControlSignals(30)
+      .setNumGenericSensors(MAX_NUM_GENERIC_SENSORS)
+      .setNumGenericControlSignals(MAX_NUM_GENERIC_CONTROL_SIGNALS)
+      .setLogs(IntStream.range(0, SIMULATION_ANALYSIS_LOG_COUNT)
+          .mapToObj(logIndex -> new Log("LOG " + logIndex))
+          .collect(Collectors.toList()))
+      .setProperties(buildProperties())
       .build();
   }
 
@@ -60,6 +86,9 @@ public class NativePluginController extends AbstractPluginController {
     for (int i = 0; i < controlSignalsUsed.length; i++) {
       controlSignalsInUse[i] = bool2int(controlSignalsUsed[i]);
     }
+    enforcedMaximumTimeStepSize = isEnforceMaxTimestepSize()
+      ? getProperty(ENFORCED_TIMESTEP_SIZE_PROPERTY_KEY).getInt()
+      : 0;
   }
 
   @Override
@@ -76,11 +105,6 @@ public class NativePluginController extends AbstractPluginController {
     }
     var nativeLibraryInterface = nativeLibraryInterfaceOptional.get();
     try {
-      for (int inUse : controlSignalsInUse) {
-        if (inUse == 1) {
-          logger.info("Control signal in use.");
-        }
-      }
       Pointer pControlSignals = floatArrayToPointer(controlSignals);
       Pointer pLogValues = floatArrayToPointer(logValues);
       nativeLibraryInterface.control(simulationTime,
@@ -95,14 +119,10 @@ public class NativePluginController extends AbstractPluginController {
           logValues.length,
           STAGE_DURING_SIMULATION,
           bool2int(preRun),
-          0);
+          enforcedMaximumTimeStepSize);
       floatArrayPointerToFloatArray(pControlSignals, controlSignals);
-      // for (float controlSignal : controlSignals) {
-      //   logger.info("Control signal set to " + controlSignal);
-      // }
       floatArrayPointerToFloatArray(pLogValues, logValues);
       return null;
-      // TODO add fixed time step configuration
     } catch (Throwable t) {
       logger.log(Level.WARNING, "Failed to call native library.", t);
       throw new PluginControllerException("Failed to call native library.", t);
@@ -118,6 +138,45 @@ public class NativePluginController extends AbstractPluginController {
       logger.log(Level.WARNING, "Could not terminate simulation", t);
       throw new RuntimeException(t);
     }
+  }
+
+  @Override
+  public List<String> getPropertiesToHide(PolysunSettings polysunSettings, Map<String, Object> parameters) {
+    List<String> propertiesToHide = super.getPropertiesToHide(polysunSettings, parameters);
+    if (!isEnforceMaxTimestepSize()) {
+      propertiesToHide.add(ENFORCED_TIMESTEP_SIZE_PROPERTY_KEY);
+    }
+    return propertiesToHide;
+  }
+
+  @Override
+  public int getFixedTimestep(Map<String, Object> parameters) {
+    return enforcedMaximumTimeStepSize;
+  }
+
+  private static List<Property> buildProperties() {
+    var enforcedTimeStepSizesProperty = new Property(ENFORCE_MAX_TIME_STEP_SIZE_PROPERTY_KEY,
+        // Options
+        enumToStringArray(YesNoOption.class),
+        // Default option
+        YesNoOption.Yes.ordinal(),
+        // Tooltip
+        """
+        Yes: Enforce a maximum time step size (Smaller time steps are possible).
+        No: Do not enforce a maximum time step size.
+        """);
+    var enforcedTimstepSizeProperty = new Property(ENFORCED_TIMESTEP_SIZE_PROPERTY_KEY,
+        DEFAULT_ENFORCED_TIME_STEP_SIZE_S,
+        MINIMUM_ENFORCED_TIME_STEP_SIZE_S,
+        MAXIMUM_ENFORCED_TIME_STEP_SIZE_S,
+        """
+        The enforced time step size in seconds.
+        Forces Polysun to limit the maximum time step size to the defined value.
+        Smaller time steps than the maximum may still occur in the simulation.
+        Warning: Setting a too small value may cause memory to run out during the simulation.
+        """);
+    return List.of(enforcedTimeStepSizesProperty,
+        enforcedTimstepSizeProperty);
   }
 
   private NativeLibraryInterface getNativeLibraryInterface() throws PluginControllerException {
@@ -147,7 +206,7 @@ public class NativePluginController extends AbstractPluginController {
       case Platform.LINUX -> "libcontrol.so";
       case Platform.WINDOWS, Platform.WINDOWSCE -> "control.dll";
       case Platform.MAC -> "libcontrol.dylib";
-      default -> throw new PluginControllerException("The current operating system is not supported.");
+        default -> throw new PluginControllerException("The current operating system is not supported.");
     };
     InputStream nativeLibrarResourceStream = getClass().getClassLoader()
       .getResourceAsStream(nativeLibraryFileName);
@@ -157,7 +216,7 @@ public class NativePluginController extends AbstractPluginController {
         case Platform.WINDOWS, Platform.WINDOWSCE -> "Windows";
         case Platform.MAC -> "macOS";
           default -> "Unknown";
-    };
+      };
       String message = "Could not find native library resource " + nativeLibraryFileName + " for OS " + osType;
       logger.warning(message);
       throw new PluginControllerException(message);
@@ -194,16 +253,30 @@ public class NativePluginController extends AbstractPluginController {
   int bool2int(boolean tf) {
     return tf ? 1 : 0;
   }
-  
+
   private void passStageToNativeLibrary(int stage) throws PluginControllerException {
     try {
       var nativeLibraryInterface = getNativeLibraryInterface();
-      nativeLibraryInterface.control(0, 1, null, null, 0, null, null, 0, null, 0, stage, 0, 0);
-      // TODO add fixed time step configuration
+      nativeLibraryInterface.control(0, 1, null, null, 0, null, null, 0, null, 0, stage, 0, enforcedMaximumTimeStepSize);
     } catch (Throwable t) {
       logger.log(Level.WARNING, "Failed to call native library.", t);
       throw new PluginControllerException("Failed to call native library.", t);
     }
+  }
+
+  private boolean isEnforceMaxTimestepSize() {
+    return getProp(ENFORCE_MAX_TIME_STEP_SIZE_PROPERTY_KEY)
+      .getInt() == YesNoOption.Yes.ordinal();
+  }
+
+  private static <E extends Enum<E>> String[] enumToStringArray(Class<E> enumClass) {
+    var stringArray = EnumSet.allOf(enumClass)
+      .stream()
+      .map(Object::toString)
+      .collect(Collectors.toList())
+      .toArray(String[]::new);
+    logger.fine(format("Converted enum %s to String array: %s", enumClass.getSimpleName(), Arrays.toString(stringArray)));
+    return stringArray;
   }
 
 }
