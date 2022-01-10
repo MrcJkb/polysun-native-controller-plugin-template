@@ -104,9 +104,9 @@ public class NativePluginController extends AbstractPluginController {
   private void loadNativeLibrary() throws PluginControllerException {
     try {
       String nativeLibraryFileName = switch(Platform.getOSType()) {
-        case Platform.LINUX -> "control.so";
+        case Platform.LINUX -> "libcontrol.so";
         case Platform.WINDOWS, Platform.WINDOWSCE -> "control.dll";
-        case Platform.MAC -> "control.dylib";
+        case Platform.MAC -> "libcontrol.dylib";
         default -> throw new PluginControllerException("The current operating system is not supported.");
       };
       URL nativeLibraryUrl = getClass().getClassLoader()
