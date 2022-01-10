@@ -7,6 +7,6 @@
 #define CONTROL_EXPORT_FUNC
 #endif
 
-int* control(int simulationTime, bool status, float sensors[], bool sensorsInUse[], float controlSignals[], bool controlSignalsInUse[], float logValues[], int stage, bool preRun, int maximumTimeStepSize); 
+extern "C" void control(int simulationTime, int status, float sensors[], int sensorsInUse[], float controlSignals[], int controlSignalsInUse[], float logValues[], int stage, int preRun, int maximumTimeStepSize);
 
 #endif

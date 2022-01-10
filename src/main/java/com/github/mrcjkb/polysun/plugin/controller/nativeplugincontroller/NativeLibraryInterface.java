@@ -1,9 +1,10 @@
 package com.github.mrcjkb.polysun.plugin.controller.nativeplugincontroller;
 
 import com.sun.jna.Library;
+import com.sun.jna.Pointer;
 
 public interface NativeLibraryInterface extends Library {
 
-  int[] control(int simulationTime, boolean status, float[] sensors, boolean[] sensorsInUse, float[] controlSignals, boolean[] controlSignalsInUse, float[] logValues, int stage, boolean preRun, int maximumTimeStepSize);
+  void control(int simulationTime, int status, float[] sensors, int[] sensorsInUse, Pointer controlSignals, int[] controlSignalsInUse, Pointer logValues, int stage, int preRun, int maximumTimeStepSize);
 
 }
