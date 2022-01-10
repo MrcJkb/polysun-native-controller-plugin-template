@@ -30,8 +30,8 @@ public class NativePluginController extends AbstractPluginController {
   private static final int STAGE_DURING_SIMULATION = 1;
   private static final int STAGE_TERMINATE_SIMULATION = 2;
   private Optional<NativeLibraryInterface> nativeLibraryInterfaceOptional = Optional.empty();
-  private int[] controlSignalsInUse; // JNA does not support bool[]
-  private int[] sensorsInUse;
+  private int[] controlSignalsInUse;
+  private int[] sensorsInUse; // JNA does not support bool[]
 
   @Override
   public String getName() {
@@ -52,31 +52,20 @@ public class NativePluginController extends AbstractPluginController {
     if (nativeLibraryInterfaceOptional.isEmpty()) {
       loadNativeLibrary();
     }
-    sensorsInUse = new int[getSensors().size()];
-    for (int i = 0; i < sensorsInUse.length; i++) {
-      sensorsInUse[i] = bool2int(getSensors()
-        .get(i)
-        .isUsed());
+    sensorsInUse = new int[sensorsUsed.length];
+    for (int i = 0; i < sensorsUsed.length; i++) {
+      sensorsInUse[i] = bool2int(sensorsUsed[i]);
     }
-    controlSignalsInUse = new int[getControlSignals().size()];
-    for (int i = 0; i < controlSignalsInUse.length; i++) {
-      controlSignalsInUse[i] = bool2int(getControlSignals()
-        .get(i)
-        .isUsed());
+    controlSignalsInUse = new int[controlSignalsUsed.length];
+    for (int i = 0; i < controlSignalsUsed.length; i++) {
+      controlSignalsInUse[i] = bool2int(controlSignalsUsed[i]);
     }
   }
 
   @Override
   public void initialiseSimulation(Map<String, Object> parameters) throws PluginControllerException {
     super.initialiseSimulation(parameters);
-    var nativeLibraryInterface = getNativeLibraryInterface();
-    try {
-      nativeLibraryInterface.control(0, 1, null, null, null, null, null, STAGE_INITIALISE_SIMULATION, 0, 0);
-      // TODO add fixed time step configuration
-    } catch (Throwable t) {
-      logger.log(Level.WARNING, "Failed to call native library.", t);
-      throw new PluginControllerException("Failed to call native library.", t);
-    }
+    passStageToNativeLibrary(STAGE_INITIALISE_SIMULATION);
   }
 
   @Override
@@ -87,10 +76,30 @@ public class NativePluginController extends AbstractPluginController {
     }
     var nativeLibraryInterface = nativeLibraryInterfaceOptional.get();
     try {
+      for (int inUse : controlSignalsInUse) {
+        if (inUse == 1) {
+          logger.info("Control signal in use.");
+        }
+      }
       Pointer pControlSignals = floatArrayToPointer(controlSignals);
       Pointer pLogValues = floatArrayToPointer(logValues);
-      nativeLibraryInterface.control(simulationTime, bool2int(status), sensors, sensorsInUse, pControlSignals, controlSignalsInUse, pLogValues, STAGE_DURING_SIMULATION, bool2int(preRun), 0);
+      nativeLibraryInterface.control(simulationTime,
+          bool2int(status),
+          sensors,
+          sensorsInUse,
+          sensors.length,
+          pControlSignals,
+          controlSignalsInUse,
+          controlSignals.length,
+          pLogValues,
+          logValues.length,
+          STAGE_DURING_SIMULATION,
+          bool2int(preRun),
+          0);
       floatArrayPointerToFloatArray(pControlSignals, controlSignals);
+      // for (float controlSignal : controlSignals) {
+      //   logger.info("Control signal set to " + controlSignal);
+      // }
       floatArrayPointerToFloatArray(pLogValues, logValues);
       return null;
       // TODO add fixed time step configuration
@@ -104,12 +113,10 @@ public class NativePluginController extends AbstractPluginController {
   public void terminateSimulation(Map<String, Object> parameters) {
     super.terminateSimulation(parameters);
     try {
-      var nativeLibraryInterface = getNativeLibraryInterface();
-      nativeLibraryInterface.control(0, 1, null, null, null, null, null, STAGE_TERMINATE_SIMULATION, 0, 0);
-      // TODO add fixed time step configuration
+      passStageToNativeLibrary(STAGE_TERMINATE_SIMULATION);
     } catch (Throwable t) {
-      logger.log(Level.WARNING, "Failed to call native library.", t);
-      throw new RuntimeException("Failed to call native library.", t);
+      logger.log(Level.WARNING, "Could not terminate simulation", t);
+      throw new RuntimeException(t);
     }
   }
 
@@ -186,6 +193,17 @@ public class NativePluginController extends AbstractPluginController {
 
   int bool2int(boolean tf) {
     return tf ? 1 : 0;
+  }
+  
+  private void passStageToNativeLibrary(int stage) throws PluginControllerException {
+    try {
+      var nativeLibraryInterface = getNativeLibraryInterface();
+      nativeLibraryInterface.control(0, 1, null, null, 0, null, null, 0, null, 0, stage, 0, 0);
+      // TODO add fixed time step configuration
+    } catch (Throwable t) {
+      logger.log(Level.WARNING, "Failed to call native library.", t);
+      throw new PluginControllerException("Failed to call native library.", t);
+    }
   }
 
 }
