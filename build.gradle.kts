@@ -1,5 +1,6 @@
 import java.text.SimpleDateFormat
 import org.gradle.nativeplatform.platform.internal.DefaultNativePlatform
+import java.io.FileInputStream
 import java.util.*
 
 plugins {
@@ -90,5 +91,23 @@ tasks {
             attributes["Build-Jdk"] = "$javaVersion ($javaVendor $javaVmVersion)"
             attributes["Build-OS"] = "$osName $osArchitecture $osVersion"
         }
+    }
+    register("install", Copy::class) {
+        dependsOn(jar)
+        val os = DefaultNativePlatform.getCurrentOperatingSystem()
+        val defaultInstallDir = if (os.isLinux) "/opt/PS"
+                                else if (os.isWindows) "C:/Program Files/Polysun"
+                                else if (os.isMacOsX) "/Applications/Polysun"
+                                else ""
+        val polysunInstallDir = project.properties.getOrDefault("Polysun.Install.Dir", defaultInstallDir) ?: defaultInstallDir
+        if (!File("$polysunInstallDir").exists()) {
+            throw RuntimeException("Could not find the Polysun installation. Please set the path in gradle.properties.")
+        }
+        println("Installing controller plugin ${rootProject.name} to Polysun installation at: $polysunInstallDir")
+        val polysunSettings = Properties()
+        FileInputStream(File("$polysunInstallDir/system.ini")).use { polysunSettings.load(it) }
+        val polysunDataDirectory = polysunSettings.getProperty("Path.Data.Folder")
+        from("build/libs/${rootProject.name}.jar")
+        into("$polysunDataDirectory/plugins")
     }
 }

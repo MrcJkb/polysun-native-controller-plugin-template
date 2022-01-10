@@ -22,6 +22,8 @@ Please refer to the Polysun user manual and the [`polysun-plugin-if/README.md`](
 * In Windows, double-click the `gradlew.bat` file to build your plugin (Windows may hide the .bat file extension) or run `gradlew.bat` from a PowerShell session.
 * This will automatically build the native library and add it to the plugin Jar's resources.
 * The resulting Jar file can be found in the `build/libs` subdirectory of this project.
+* You can also install your plugin directly using the `./gradlew install` or `gradlew.bat install` task.
+  If you have installed Polysun to a non-default location, make sure to set the installation directory in the [`gradle.properties`](./gradle.properties) file.
 
 >:warning: The native library must be compiled on the operating system it is intended to be used on.
 > If you would like your plugin to be cross-compatible with Linux, Windows and macOS,
