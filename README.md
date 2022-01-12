@@ -1,5 +1,5 @@
 # polysun-native-controller-plugin-template
-A project template for building a Polysun plugin controller that uses native libraries, from code written in C++, C and other languages. 
+A project template for building a [Polysun](https://www.velasolaris.com/software/) plugin controller that uses native libraries, from code written in C++, C and other languages. 
 
 ## Getting started ##
 
