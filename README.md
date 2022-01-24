@@ -3,10 +3,7 @@ A project template for building a [Polysun](https://www.velasolaris.com/software
 
 ## Getting started ##
 
-* Clone this repository.
-* Rename the cloned directory to your plugin's name.
-* Navigate to the cloned directory.
-* Delete the `.git` directory.
+* Fork and clone this repository.
 * Modify the [`control C++ function`](./control/lib/src/main/cpp/control.cpp). 
 * Search this project's file contents for `TODO` tags and add your custom information (controller name, description, author, etc.).
     * [`build.gradle.kts`](./build.gradle.kts)
